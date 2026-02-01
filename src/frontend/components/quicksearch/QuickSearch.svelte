@@ -15,9 +15,24 @@
 
     let values: any[] = []
     let searchValue = ""
-    function search(e: any) {
+    let searchId = 0
+
+    async function search(e: any) {
         searchValue = e.target.value
-        values = quicksearch(formatSearch(searchValue))
+        const currentId = ++searchId
+
+        // Clear values immediately if search is empty
+        if (!searchValue) {
+             values = []
+             return
+        }
+
+        const results = await quicksearch(formatSearch(searchValue))
+
+        // Prevent race conditions
+        if (currentId !== searchId) return
+
+        values = results
         selectedIndex = 0
     }
 
@@ -31,13 +46,18 @@
             return
         }
 
-        if (!$quickSearchActive || !values) return
+        if (!$quickSearchActive || !values.length) return
 
         if (e.key === "Enter") {
             selectQuicksearchValue(values[selectedIndex], e.ctrlKey || e.metaKey)
             selectedIndex = 0
-        } else if (e.key === "ArrowDown") selectedIndex = Math.min(values.length - 1, selectedIndex + 1)
-        else if (e.key === "ArrowUp") selectedIndex = Math.max(0, selectedIndex - 1)
+        } else if (e.key === "ArrowDown") {
+             e.preventDefault()
+             selectedIndex = Math.min(values.length - 1, selectedIndex + 1)
+        } else if (e.key === "ArrowUp") {
+             e.preventDefault()
+             selectedIndex = Math.max(0, selectedIndex - 1)
+        }
     }
 
     // let light = false
@@ -54,6 +74,12 @@
     }
 
     $: isOptimized = $special.optimizedMode
+
+    // Auto-scroll to selected item
+    $: if (values.length && selectedIndex >= 0) {
+        const selectedEl = document.getElementById(`qs-item-${selectedIndex}`)
+        if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' })
+    }
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -61,26 +87,44 @@
 {#if $quickSearchActive}
     <div class="quicksearch" transition:fade={{ duration: 50 }}>
         <div class="box" style="--background: rgb({rgb.r} {rgb.g} {rgb.b} / 0.9);" class:isOptimized>
-            <TextInput value={searchValue} placeholder={translateText("main.quick_search...")} style="padding: 8px 15px;font-size: 1.2em;min-width: 400px;" autofocus autoselect on:input={search} />
+            <TextInput value={searchValue} placeholder={translateText("main.quick_search...")} style="padding: 10px 15px;font-size: 1.4em;" autofocus autoselect on:input={search} />
 
             {#if searchValue}
                 {#if values.length}
                     <div class="values">
                         {#each values as value, i}
-                            <Button style="gap: 10px;font-size: 1em;color: {value.color || 'unset'};{i > 0 && values[i - 1]?.type !== value.type ? 'border-top: 2px solid var(--primary-lighter);' : ''}" active={i === selectedIndex} on:click={(e) => selectQuicksearchValue(value, e.ctrlKey || e.metaKey)} bold={false}>
-                                <Icon id={value.icon || value.type} />
-                                <p data-title={value.name}>
-                                    {value.name}
+                            {#if i === 0 || values[i - 1].category !== value.category}
+                                <div class="category-header">
+                                    {value.category}
+                                </div>
+                            {/if}
 
-                                    {#if value.aliasMatch && !value.aliasMatch.startsWith("-")}
-                                        <span style="opacity: 0.5;font-style: italic;margin-left: 5px;font-size: 0.8em;">{value.aliasMatch}</span>
-                                    {/if}
+                            <div id="qs-item-{i}">
+                                <Button
+                                    style="gap: 10px;font-size: 1em;color: {value.color || 'unset'};"
+                                    active={i === selectedIndex}
+                                    on:click={(e) => selectQuicksearchValue(value, e.ctrlKey || e.metaKey)}
+                                    bold={false}
+                                >
+                                    <Icon id={value.icon || value.type} />
+                                    <div class="item-text" data-title={value.name}>
+                                        <p>
+                                            {value.name}
 
-                                    {#if value.id.includes("http")}
-                                        <Icon id="launch" size={0.8} white />
-                                    {/if}
-                                </p>
-                            </Button>
+                                            {#if value.aliasMatch && !value.aliasMatch.startsWith("-")}
+                                                <span style="opacity: 0.5;font-style: italic;margin-left: 5px;font-size: 0.8em;">{value.aliasMatch}</span>
+                                            {/if}
+
+                                            {#if value.id.includes("http")}
+                                                <Icon id="launch" size={0.8} white />
+                                            {/if}
+                                        </p>
+                                        {#if value.description}
+                                            <p class="description">{value.description}</p>
+                                        {/if}
+                                    </div>
+                                </Button>
+                            </div>
                         {/each}
                     </div>
                 {:else}
@@ -97,9 +141,11 @@
     .quicksearch {
         position: absolute;
         left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        max-width: calc(100% - var(--navigation-width) * 2);
+        top: 20%; /* Move it up a bit like spotlight */
+        transform: translate(-50%, 0);
+        /* max-width: calc(100% - var(--navigation-width) * 2); */
+        width: 600px;
+        max-width: 90%;
 
         z-index: 5001;
     }
@@ -110,23 +156,65 @@
         gap: 10px;
 
         background-color: var(--primary);
-        border-radius: 10px;
-        padding: 10px;
+        border-radius: 12px;
+        padding: 12px;
 
-        box-shadow: 0 0 4px 2px rgb(0 0 0 / 0.2);
+        box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
         border: 1px solid var(--primary-lighter);
 
-        --background: rgba(35, 35, 45, 0.9);
+        --background: rgba(35, 35, 45, 0.95);
         background-color: var(--background);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(12px);
     }
 
     .box :global(input) {
-        border-radius: 4px;
+        border-radius: 6px;
+        border: none;
+        background: transparent;
+        color: var(--text);
+    }
+    .box :global(input):focus {
+        outline: none;
     }
 
     .values {
         display: flex;
         flex-direction: column;
+        max-height: 60vh;
+        overflow-y: auto;
+        padding-right: 5px; /* space for scrollbar */
+    }
+
+    .category-header {
+        font-size: 0.75em;
+        font-weight: bold;
+        text-transform: uppercase;
+        color: var(--text);
+        opacity: 0.5;
+        padding: 10px 10px 5px 10px;
+        margin-top: 5px;
+        border-bottom: 1px solid var(--primary-lighter);
+    }
+    .category-header:first-child {
+        margin-top: 0;
+    }
+
+    .item-text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        flex: 1;
+        overflow: hidden;
+    }
+    .item-text p {
+        width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-align: left;
+    }
+    .description {
+        font-size: 0.8em;
+        opacity: 0.6;
     }
 </style>
