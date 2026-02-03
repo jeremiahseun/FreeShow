@@ -6,6 +6,7 @@ import type { ShowObj } from "../../classes/Show"
 import { fixShowIssues } from "../../converters/importHelpers"
 import { requestMain } from "../../IPC/main"
 import { cachedShowsData, categories, notFound, saved, shows, showsCache, textCache } from "../../stores"
+import { invalidateSearchIndex } from "../../utils/search"
 import { Main } from "./../../../types/IPC/Main"
 import { getFileName } from "./media"
 import { getShowCacheId, updateCachedShow } from "./show"
@@ -233,6 +234,7 @@ export function saveTextCache(id: string, show: Show) {
     if (updateTimeout) clearTimeout(updateTimeout)
     updateTimeout = setTimeout(() => {
         textCache.set({ ...get(textCache), ...tempCache })
+        invalidateSearchIndex() // Rebuild search index when cache changes
         tempCache = {}
     }, 1000)
 }

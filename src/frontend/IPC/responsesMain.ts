@@ -84,6 +84,7 @@ import { setupCloudSync } from "../utils/cloudSync"
 import { newToast } from "../utils/common"
 import { confirmCustom } from "../utils/popup"
 import { initializeClosing, saveComplete } from "../utils/save"
+import { invalidateSearchIndex } from "../utils/search"
 import { updateSettings, updateSyncedSettings, updateThemeValues } from "../utils/updateSettings"
 import type { MainReturnPayloads } from "./../../types/IPC/Main"
 import { Main } from "./../../types/IPC/Main"
@@ -141,6 +142,8 @@ export const mainResponses: MainResponses = {
     },
     [Main.CACHE]: (a) => {
         textCache.set(a.text || {})
+        // Invalidate search index when cache is loaded from storage
+        invalidateSearchIndex()
     },
     [Main.USAGE]: (a) => usageLog.set(a),
 

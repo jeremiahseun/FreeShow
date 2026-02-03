@@ -1,11 +1,11 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
 import { sendMain } from "../../IPC/main"
-import { actions, activeEdit, activePage, activePopup, activeProject, activeShow, activeStage, activeStyle, alertMessage, categories, companion, currentOutputSettings, disabledServers, drawerTabsData, focusMode, folders, groups, media, openScripture, openToolsTab, outputs, overlays, profiles, projects, projectView, quickSearchActive, refreshEditSlide, selectedProfile, settingsTab, showRecentlyUsedProjects, showsCache, slidesOptions, sortedShowsList, stageShows, styles, textEditActive } from "../../stores"
+import { actions, activeEdit, activePage, activePopup, activeProject, activeShow, activeStage, activeStyle, alertMessage, categories, companion, currentOutputSettings, disabledServers, drawerTabsData, focusMode, folders, groups, media, openScripture, openToolsTab, outputs, overlays, profiles, projects, projectView, quickSearchActive, refreshEditSlide, scriptures, scripturesCache, selectedProfile, settingsTab, showRecentlyUsedProjects, showsCache, slidesOptions, sortedShowsList, stageShows, styles, textCache, textEditActive } from "../../stores"
 import { triggerFunction } from "../../utils/common"
 import { translateText } from "../../utils/language"
 import { getAccess } from "../../utils/profile"
-import { showSearch } from "../../utils/search"
+import { buildBibleIndex, fastBibleSearch, showSearch } from "../../utils/search"
 import { runAction } from "../actions/actions"
 import { sortByClosestMatch } from "../actions/apiHelper"
 import { menuClick } from "../context/menuClick"
@@ -34,7 +34,9 @@ const MAX_RESULTS_PER_CATEGORY = 5
 const MAX_BIBLE_RESULTS = 5
 const MAX_MEDIA_RESULTS = 5
 
-export async function quicksearch(searchValue: string) {
+export type SearchCategory = "all" | "songs" | "bible" | "media" | "settings"
+
+export async function quicksearch(searchValue: string, rawSearchValue: string = "", categoryFilter: SearchCategory = "all") {
     const allResults: QuickSearchValue[] = []
     const sort = (array: any[]) => sortByClosestMatch(array, searchValue)
 
@@ -48,77 +50,104 @@ export async function quicksearch(searchValue: string) {
             color: a.color,
             data: a.data || null,
             aliasMatch: a.aliasMatch || null,
+            description: a.description || null,
             category
         }))
         allResults.push(...newValues)
     }
 
+    const shouldInclude = (cat: SearchCategory) => categoryFilter === "all" || categoryFilter === cat
+
     // --- SONGS ---
-    if (get(activePage) === "show" && get(activeShow)?.type === "show") {
-        addValues(sort(getShowActions()).slice(0, 5), "custom_actions", "Songs")
-    }
+    if (shouldInclude("songs")) {
+        if (get(activePage) === "show" && get(activeShow)?.type === "show") {
+            addValues(sort(getShowActions()).slice(0, 5), "custom_actions", "Songs")
+        }
 
-    if (get(activePage) === "edit" && !get(activeEdit)?.id && get(activeShow)?.type === "show") {
-        addValues(sort(getEditActions()).slice(0, 5), "custom_actions", "Songs")
-    }
+        if (get(activePage) === "edit" && !get(activeEdit)?.id && get(activeShow)?.type === "show") {
+            addValues(sort(getEditActions()).slice(0, 5), "custom_actions", "Songs")
+        }
 
-    // Shows
-    const shows = showSearch(
-        searchValue,
-        get(sortedShowsList).filter((a) => !get(categories)[a.category || ""]?.isArchive)
-    )
-    addValues(shows.slice(0, MAX_RESULTS_PER_CATEGORY), "show", "Songs", "slide")
+        // Shows with lyrics preview
+        const shows = showSearch(
+            searchValue,
+            get(sortedShowsList).filter((a) => !get(categories)[a.category || ""]?.isArchive)
+        )
+        const showsWithPreview = shows.slice(0, MAX_RESULTS_PER_CATEGORY).map((show) => {
+            const cache = get(textCache)[show.id] || ""
+            let description = ""
+            if (cache && rawSearchValue.length > 2) {
+                // Find a snippet containing the search term
+                const lowerCache = cache.toLowerCase()
+                const lowerSearch = rawSearchValue.toLowerCase()
+                const idx = lowerCache.indexOf(lowerSearch)
+                if (idx !== -1) {
+                    const start = Math.max(0, idx - 30)
+                    const end = Math.min(cache.length, idx + rawSearchValue.length + 50)
+                    description = (start > 0 ? "..." : "") + cache.slice(start, end).trim() + (end < cache.length ? "..." : "")
+                }
+            }
+            return { ...show, description }
+        })
+        addValues(showsWithPreview, "show", "Songs", "slide")
+    }
 
     // --- MEDIA ---
-    const mediaResults = getMediaResults(searchValue)
-    addValues(mediaResults, "media", "Media")
+    if (shouldInclude("media")) {
+        const mediaResults = getMediaResults(searchValue)
+        addValues(mediaResults, "media", "Media")
+    }
 
     // --- BIBLE ---
-    const bibleResults = await getBibleResults(searchValue)
-    addValues(bibleResults, "bible", "Bible")
+    if (shouldInclude("bible")) {
+        const bibleResults = await getBibleResults(searchValue)
+        addValues(bibleResults, "bible", "Bible")
+    }
 
-    // --- OTHERS ---
-    // outputs
-    addValues(sort(keysToID(get(outputs))).slice(0, 5), "settings_output", "Others", "display_settings")
+    // --- SETTINGS/OTHERS ---
+    if (shouldInclude("settings")) {
+        // outputs
+        addValues(sort(keysToID(get(outputs))).slice(0, 5), "settings_output", "Settings", "display_settings")
 
-    // styles
-    addValues(sort(keysToID(get(styles))).slice(0, 5), "settings_styles", "Others", "styles")
+        // styles
+        addValues(sort(keysToID(get(styles))).slice(0, 5), "settings_styles", "Settings", "styles")
 
-    // profiles
-    addValues(sort(keysToID(get(profiles))).slice(0, 5), "settings_profiles", "Others", "profiles")
+        // profiles
+        addValues(sort(keysToID(get(profiles))).slice(0, 5), "settings_profiles", "Settings", "profiles")
 
-    // stage layouts
-    addValues(sort(keysToID(get(stageShows))).slice(0, 5), "stage_layout", "Others", "stage")
+        // stage layouts
+        addValues(sort(keysToID(get(stageShows))).slice(0, 5), "stage_layout", "Settings", "stage")
 
-    // overlays
-    addValues(sort(keysToID(get(overlays))).slice(0, 5), "overlay", "Others", "overlays")
+        // overlays
+        addValues(sort(keysToID(get(overlays))).slice(0, 5), "overlay", "Settings", "overlays")
 
-    // projects
-    addValues(sort(keysToID(get(projects))).slice(0, 5), "project", "Others", "project")
+        // projects
+        addValues(sort(keysToID(get(projects))).slice(0, 5), "project", "Settings", "project")
 
-    // actions
-    addValues(sort(keysToID(get(actions))).slice(0, 2), "action", "Others", "actions")
+        // actions
+        addValues(sort(keysToID(get(actions))).slice(0, 2), "action", "Settings", "actions")
 
-    // main pages
-    addValues(sort(getMainPages()).slice(0, 2), "main_page", "Others")
+        // main pages
+        addValues(sort(getMainPages()).slice(0, 2), "main_page", "Settings")
 
-    // drawer submenus
-    addValues(sort(getDrawerSubmenus()).slice(0, 3), "drawer_submenu", "Others")
+        // drawer submenus
+        addValues(sort(getDrawerSubmenus()).slice(0, 3), "drawer_submenu", "Settings")
 
-    // menu bar
-    addValues(sort(getMenubarItems()).slice(0, 3), "context_menu", "Others")
+        // menu bar
+        addValues(sort(getMenubarItems()).slice(0, 3), "context_menu", "Settings")
 
-    // popups
-    addValues(sort(getPopups()).slice(0, 3), "popups", "Others")
+        // popups
+        addValues(sort(getPopups()).slice(0, 3), "popups", "Settings")
 
-    // settings
-    addValues(sort(getSettings()).slice(0, 3), "settings", "Others")
+        // settings
+        addValues(sort(getSettings()).slice(0, 3), "settings", "Settings")
 
-    // connections
-    addValues(sort(connectionsList), "settings_connection", "Others", "connection")
+        // connections
+        addValues(sort(connectionsList), "settings_connection", "Settings", "connection")
 
-    // faq
-    addValues(sort(getFaq()).slice(0, 3), "faq", "Others")
+        // faq
+        addValues(sort(getFaq()).slice(0, 3), "faq", "Settings")
+    }
 
     return allResults
 }
@@ -136,19 +165,38 @@ async function getBibleResults(searchValue: string) {
     // Reference Search
     const bookResult = bibleData.bookSearch(searchValue)
     if (bookResult && bookResult.book) {
-        const bookName = (await bibleData.getBook(bookResult.book)).name
+        const Book = await bibleData.getBook(bookResult.book)
+        const bookName = Book.name
         let name = bookName
+        let versePreview = ""
+
         if (bookResult.chapter) {
             name += " " + bookResult.chapter
-            if (bookResult.verses?.length) {
-                // If specific verses are found
-                 // Check if verses are sequential for nicer display (e.g. 1-5)
-                 const verses = bookResult.verses
-                 if (verses.length > 1 && verses[verses.length-1] === verses[0] + verses.length - 1) {
-                     name += ":" + verses[0] + "-" + verses[verses.length-1]
-                 } else {
-                     name += ":" + verses.join(",")
-                 }
+
+            // Try to get verse text preview
+            try {
+                const Chapter = await Book.getChapter(bookResult.chapter)
+                if (bookResult.verses?.length) {
+                    // Get first verse text for preview
+                    const firstVerse = Chapter.getVerse(bookResult.verses[0])
+                    versePreview = firstVerse?.getHTML()?.replace(/<[^>]*>/g, "").slice(0, 100) || ""
+                    if (versePreview.length === 100) versePreview += "..."
+
+                    // Format verse range for display
+                    const verses = bookResult.verses
+                    if (verses.length > 1 && verses[verses.length - 1] === verses[0] + verses.length - 1) {
+                        name += ":" + verses[0] + "-" + verses[verses.length - 1]
+                    } else {
+                        name += ":" + verses.join(",")
+                    }
+                } else {
+                    // Default to first verse of chapter
+                    const firstVerse = Chapter.getVerse(1)
+                    versePreview = firstVerse?.getHTML()?.replace(/<[^>]*>/g, "").slice(0, 100) || ""
+                    if (versePreview.length === 100) versePreview += "..."
+                }
+            } catch (e) {
+                // Ignore errors in preview fetching
             }
         }
 
@@ -157,6 +205,7 @@ async function getBibleResults(searchValue: string) {
             name: name,
             icon: "scripture",
             type: "bible",
+            description: versePreview,
             data: {
                 reference: {
                     book: bookResult.book,
@@ -171,22 +220,44 @@ async function getBibleResults(searchValue: string) {
     // Text Search
     // Only search if length > 2 to avoid too many results
     if (searchValue.length > 2) {
-        const textResults = await bibleData.textSearch(searchValue)
+        let textResults: any[] = []
+
+        const scriptureData = get(scriptures)[activeBibleId]
+        if (!scriptureData?.api) {
+            // Local Bible: Use our fast inverted index search
+            const rawBible = get(scripturesCache)[activeBibleId]
+            if (rawBible) {
+                await buildBibleIndex(activeBibleId, rawBible)
+                const fastResults = fastBibleSearch(searchValue)
+                textResults = fastResults.map(r => ({
+                    reference: r.reference,
+                    book: r.book,
+                    chapter: r.chapter,
+                    verse: { number: r.verse, text: r.text }
+                }))
+            }
+        }
+
+        // Fallback to library search if index search didn't yield results or for API bibles
+        if (textResults.length === 0) {
+            textResults = (await bibleData.textSearch(searchValue)) || []
+        }
+
         if (textResults) {
             textResults.slice(0, MAX_BIBLE_RESULTS).forEach((res) => {
-                 results.push({
+                results.push({
                     id: activeBibleId,
                     name: res.reference, // e.g. "John 3:16"
                     icon: "scripture",
                     type: "bible",
                     description: res.verse.text, // Show verse text
                     data: {
-                         reference: {
-                             book: res.book,
-                             chapter: res.chapter,
-                             verses: [[res.verse.number]]
-                         },
-                         play: true // Play when selecting specific verse match
+                        reference: {
+                            book: res.book,
+                            chapter: res.chapter,
+                            verses: [[res.verse.number]]
+                        },
+                        play: true // Play when selecting specific verse match
                     }
                 })
             })
