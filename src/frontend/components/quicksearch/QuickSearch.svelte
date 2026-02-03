@@ -32,8 +32,8 @@
 
         // Clear values immediately if search is empty
         if (!searchValue) {
-             values = []
-             return
+            values = []
+            return
         }
 
         const results = await quicksearch(formatSearch(searchValue), searchValue, activeCategory)
@@ -69,11 +69,11 @@
             selectQuicksearchValue(values[selectedIndex], e.ctrlKey || e.metaKey)
             selectedIndex = 0
         } else if (e.key === "ArrowDown") {
-             e.preventDefault()
-             selectedIndex = Math.min(values.length - 1, selectedIndex + 1)
+            e.preventDefault()
+            selectedIndex = Math.min(values.length - 1, selectedIndex + 1)
         } else if (e.key === "ArrowUp") {
-             e.preventDefault()
-             selectedIndex = Math.max(0, selectedIndex - 1)
+            e.preventDefault()
+            selectedIndex = Math.max(0, selectedIndex - 1)
         }
     }
 
@@ -92,7 +92,7 @@
     // Auto-scroll to selected item
     $: if (values.length && selectedIndex >= 0) {
         const selectedEl = document.getElementById(`qs-item-${selectedIndex}`)
-        if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' })
+        if (selectedEl) selectedEl.scrollIntoView({ block: "nearest" })
     }
 
     // Function to highlight matching text
@@ -100,24 +100,24 @@
         if (!search || !text) return text
 
         // Try strict match first
-        const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const strictRegex = new RegExp(`(${escapedSearch})`, 'gi')
+        const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        const strictRegex = new RegExp(`(${escapedSearch})`, "gi")
         if (strictRegex.test(text)) {
-            return text.replace(strictRegex, '<mark>$1</mark>')
+            return text.replace(strictRegex, "<mark>$1</mark>")
         }
 
         // Try tokenized match (words >= 3 chars)
-        const words = search.split(/\s+/).filter(w => w.length >= 3)
+        const words = search.split(/\s+/).filter((w) => w.length >= 3)
         if (!words.length) return text
 
         // Group words for a single regex to avoid overlapping <mark> tags
         const pattern = words
             .sort((a, b) => b.length - a.length) // Longest words first
-            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-            .join('|')
+            .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("|")
 
-        const tokenRegex = new RegExp(`(${pattern})`, 'gi')
-        return text.replace(tokenRegex, '<mark>$1</mark>')
+        const tokenRegex = new RegExp(`(${pattern})`, "gi")
+        return text.replace(tokenRegex, "<mark>$1</mark>")
     }
 </script>
 
@@ -139,11 +139,7 @@
             <!-- Category Filter Bar -->
             <div class="category-bar" transition:fly={{ y: -10, duration: 150 }}>
                 {#each categories as cat}
-                    <button
-                        class="category-btn"
-                        class:active={activeCategory === cat.id}
-                        on:click={() => selectCategory(cat.id)}
-                    >
+                    <button class="category-btn" class:active={activeCategory === cat.id} on:click={() => selectCategory(cat.id)}>
                         <Icon id={cat.icon} size={0.9} />
                         <span>{cat.label}</span>
                     </button>
@@ -161,12 +157,7 @@
                             {/if}
 
                             <div id="qs-item-{i}">
-                                <Button
-                                    style="gap: 10px;font-size: 1em;color: {value.color || 'unset'};"
-                                    active={i === selectedIndex}
-                                    on:click={(e) => selectQuicksearchValue(value, e.ctrlKey || e.metaKey)}
-                                    bold={false}
-                                >
+                                <Button style="gap: 10px;font-size: 1em;color: {value.color || 'unset'};" active={i === selectedIndex} on:click={(e) => selectQuicksearchValue(value, e.ctrlKey || e.metaKey)} bold={false}>
                                     <Icon id={value.icon || value.type} />
                                     <div class="item-text" data-title={value.name}>
                                         <p>
@@ -219,7 +210,9 @@
         border-radius: 16px;
         padding: 14px;
 
-        box-shadow: 0 12px 40px rgb(0 0 0 / 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+        box-shadow:
+            0 12px 40px rgb(0 0 0 / 0.6),
+            0 0 0 1px rgba(255, 255, 255, 0.05) inset;
         border: 1px solid var(--primary-lighter);
 
         --background: rgba(35, 35, 45, 0.95);
@@ -257,8 +250,15 @@
         animation: pulse 2s ease-in-out infinite;
     }
     @keyframes pulse {
-        0%, 100% { opacity: 0.7; transform: scale(1); }
-        50% { opacity: 1; transform: scale(1.1); }
+        0%,
+        100% {
+            opacity: 0.7;
+            transform: scale(1);
+        }
+        50% {
+            opacity: 1;
+            transform: scale(1.1);
+        }
     }
     .indicator-text {
         font-size: 0.85em;

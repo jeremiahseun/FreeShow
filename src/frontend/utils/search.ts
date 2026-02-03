@@ -33,13 +33,13 @@ export function isRefinement(newTokens: string[], oldTokens: string[]): boolean 
 interface IndexEntry {
     showId: string
     field: "name" | "content"
-    frequency: number  // How many times word appears
+    frequency: number // How many times word appears
 }
 
 interface SearchIndex {
-    wordIndex: Map<string, IndexEntry[]>     // word -> [showId, field, freq]
-    phraseIndex: Map<string, Set<string>>    // 2-gram phrase -> Set<showId>
-    showData: Map<string, { name: string, content: string }>
+    wordIndex: Map<string, IndexEntry[]> // word -> [showId, field, freq]
+    phraseIndex: Map<string, Set<string>> // 2-gram phrase -> Set<showId>
+    showData: Map<string, { name: string; content: string }>
     lastBuildTime: number
 }
 
@@ -67,7 +67,7 @@ let indexVersion = 0
 export function buildSearchIndex(shows: ShowList[]) {
     const wordIndex = new Map<string, IndexEntry[]>()
     const phraseIndex = new Map<string, Set<string>>()
-    const showData = new Map<string, { name: string, content: string }>()
+    const showData = new Map<string, { name: string; content: string }>()
     const cache = get(textCache)
 
     for (const show of shows) {
@@ -106,12 +106,12 @@ export function fastBibleSearch(searchValue: string, MAX_RESULTS = 20): BibleVer
     if (!bibleIndex) return []
 
     const formattedQuery = formatSearch(searchValue)
-    const queryWords = tokenize(formattedQuery).filter(w => w.length >= 3)
+    const queryWords = tokenize(formattedQuery).filter((w) => w.length >= 3)
 
     if (queryWords.length === 0) return []
 
     // Map: Verse Key (Book-Chapter-Verse) -> { ref, score }
-    const resultsMap = new Map<string, { ref: BibleVerseRef, score: number }>()
+    const resultsMap = new Map<string, { ref: BibleVerseRef; score: number }>()
 
     for (const word of queryWords) {
         // Try exact match
@@ -137,7 +137,7 @@ export function fastBibleSearch(searchValue: string, MAX_RESULTS = 20): BibleVer
 
     // Sort by score (number of matched words) and limit
     const sortedResults = Array.from(resultsMap.values())
-        .filter(r => r.score > 0)
+        .filter((r) => r.score > 0)
         .sort((a, b) => {
             // Priority 1: Match count
             if (b.score !== a.score) return b.score - a.score
@@ -151,7 +151,7 @@ export function fastBibleSearch(searchValue: string, MAX_RESULTS = 20): BibleVer
             return 0
         })
         .slice(0, MAX_RESULTS)
-        .map(r => r.ref)
+        .map((r) => r.ref)
 
     return sortedResults
 }
@@ -209,12 +209,7 @@ export async function buildBibleIndex(bibleId: string, bibleData: any) {
     return bibleIndex
 }
 
-function indexWords(
-    index: Map<string, IndexEntry[]>,
-    showId: string,
-    words: string[],
-    field: "name" | "content"
-) {
+function indexWords(index: Map<string, IndexEntry[]>, showId: string, words: string[], field: "name" | "content") {
     const wordFreq = new Map<string, number>()
     for (const word of words) {
         if (word.length < 2) continue // Skip very short words
@@ -229,11 +224,7 @@ function indexWords(
     }
 }
 
-function indexPhrases(
-    index: Map<string, Set<string>>,
-    showId: string,
-    words: string[]
-) {
+function indexPhrases(index: Map<string, Set<string>>, showId: string, words: string[]) {
     // Create 2-grams and 3-grams for phrase matching
     for (let i = 0; i < words.length - 1; i++) {
         const bigram = words[i] + " " + words[i + 1]
@@ -305,7 +296,7 @@ export function fastSearch(searchValue: string, shows: ShowList[]): ShowList[] {
     }
 
     // Convert scores to results
-    const showMap = new Map(shows.map(s => [s.id, s]))
+    const showMap = new Map(shows.map((s) => [s.id, s]))
     let results: ShowList[] = []
 
     for (const [showId, score] of scores) {
@@ -324,7 +315,7 @@ export function fastSearch(searchValue: string, shows: ShowList[]): ShowList[] {
 
     // Normalize scores to 0-100
     const maxScore = results[0]?.match || 1
-    results = results.map(r => ({ ...r, originalMatch: r.match, match: ((r.match || 0) / maxScore) * 100 }))
+    results = results.map((r) => ({ ...r, originalMatch: r.match, match: ((r.match || 0) / maxScore) * 100 }))
 
     return results
 }
@@ -424,7 +415,7 @@ export function showSearchFilter(searchValue: string, show: ShowList) {
     const cache = get(textCache)[show.id] || ""
 
     // NEW: Multi-word search - check if ALL words appear in content
-    const queryWords = tokenize(searchValue).filter(w => w.length >= 3)
+    const queryWords = tokenize(searchValue).filter((w) => w.length >= 3)
     const contentLower = formatSearch(cache, false)
     const nameLower = formatSearch(show.name, false)
 
@@ -443,7 +434,7 @@ export function showSearchFilter(searchValue: string, show: ShowList) {
         const contentMatchRatio = contentMatches / queryWords.length
 
         // Name matches are more valuable
-        wordMatchScore = (nameMatchRatio * 40) + (contentMatchRatio * 30)
+        wordMatchScore = nameMatchRatio * 40 + contentMatchRatio * 30
     }
 
     // Priority 2: Content Includes Percentage Match (original)

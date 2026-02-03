@@ -1,7 +1,47 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
 import { sendMain } from "../../IPC/main"
-import { actions, activeEdit, activePage, activePopup, activeProject, activeShow, activeStage, activeStyle, alertMessage, categories, companion, currentOutputSettings, disabledServers, drawerTabsData, focusMode, folders, groups, media, openScripture, openToolsTab, outputs, overlays, profiles, projects, projectView, quickSearchActive, refreshEditSlide, scriptures, scripturesCache, selectedProfile, settingsTab, showRecentlyUsedProjects, showsCache, slidesOptions, sortedShowsList, stageShows, styles, textCache, textEditActive } from "../../stores"
+import {
+    actions,
+    activeEdit,
+    activePage,
+    activePopup,
+    activeProject,
+    activeShow,
+    activeStage,
+    activeStyle,
+    alertMessage,
+    categories,
+    companion,
+    currentOutputSettings,
+    disabledServers,
+    drawerTabsData,
+    focusMode,
+    folders,
+    groups,
+    media,
+    openScripture,
+    openToolsTab,
+    outputs,
+    overlays,
+    profiles,
+    projects,
+    projectView,
+    quickSearchActive,
+    refreshEditSlide,
+    scriptures,
+    scripturesCache,
+    selectedProfile,
+    settingsTab,
+    showRecentlyUsedProjects,
+    showsCache,
+    slidesOptions,
+    sortedShowsList,
+    stageShows,
+    styles,
+    textCache,
+    textEditActive
+} from "../../stores"
 import { triggerFunction } from "../../utils/common"
 import { translateText } from "../../utils/language"
 import { getAccess } from "../../utils/profile"
@@ -179,7 +219,11 @@ async function getBibleResults(searchValue: string) {
                 if (bookResult.verses?.length) {
                     // Get first verse text for preview
                     const firstVerse = Chapter.getVerse(bookResult.verses[0])
-                    versePreview = firstVerse?.getHTML()?.replace(/<[^>]*>/g, "").slice(0, 100) || ""
+                    versePreview =
+                        firstVerse
+                            ?.getHTML()
+                            ?.replace(/<[^>]*>/g, "")
+                            .slice(0, 100) || ""
                     if (versePreview.length === 100) versePreview += "..."
 
                     // Format verse range for display
@@ -192,7 +236,11 @@ async function getBibleResults(searchValue: string) {
                 } else {
                     // Default to first verse of chapter
                     const firstVerse = Chapter.getVerse(1)
-                    versePreview = firstVerse?.getHTML()?.replace(/<[^>]*>/g, "").slice(0, 100) || ""
+                    versePreview =
+                        firstVerse
+                            ?.getHTML()
+                            ?.replace(/<[^>]*>/g, "")
+                            .slice(0, 100) || ""
                     if (versePreview.length === 100) versePreview += "..."
                 }
             } catch (e) {
@@ -229,7 +277,7 @@ async function getBibleResults(searchValue: string) {
             if (rawBible) {
                 await buildBibleIndex(activeBibleId, rawBible)
                 const fastResults = fastBibleSearch(searchValue)
-                textResults = fastResults.map(r => ({
+                textResults = fastResults.map((r) => ({
                     reference: r.reference,
                     book: r.book,
                     chapter: r.chapter,
@@ -496,7 +544,7 @@ const triggerActions = {
             }
         }
     },
-    bible: (id: string, data: any, control: boolean) => {
+    bible: (_id: string, data: any, _control: boolean) => {
         // Switch to Scripture tab
         openDrawer("scripture")
 
@@ -508,12 +556,12 @@ const triggerActions = {
             })
         }
     },
-    media: (id: string, data: any, control: boolean) => {
+    media: (id: string, _data: any, _control: boolean) => {
         const mediaItem = get(media)[id]
         if (!mediaItem) return
 
         // Logic from MediaCard.svelte click()
-        const videoType = "foreground" // Default to foreground? Or background? Usually backgrounds are played on QuickSearch?
+        const _videoType = "foreground" // Default to foreground? Or background? Usually backgrounds are played on QuickSearch?
         // Let's assume background for media files unless specified.
         // Actually, in MediaCard.svelte it calculates type.
 
@@ -530,14 +578,19 @@ const triggerActions = {
             // We can determine videoType here if needed using getMediaLayerType but we need to import it or logic.
             // For simplicity, let's just play it.
 
-            setOutput("background", {
-                path: id,
-                type: getMediaType(id),
-                loop,
-                muted,
-                startAt: 0,
-                ...currentMediaStyle,
-            }, false, output.id)
+            setOutput(
+                "background",
+                {
+                    path: id,
+                    type: getMediaType(id),
+                    loop,
+                    muted,
+                    startAt: 0,
+                    ...currentMediaStyle
+                },
+                false,
+                output.id
+            )
         })
     }
 }
