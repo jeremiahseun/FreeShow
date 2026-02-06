@@ -16,41 +16,35 @@
     let values: any[] = []
     let searchValue = ""
     let searchId = 0
-    let activeCategory: SearchCategory = "all"
-
-    const categories: { id: SearchCategory; label: string; icon: string }[] = [
-        { id: "all", label: "All", icon: "search" },
-        { id: "songs", label: "Songs", icon: "slide" },
-        { id: "bible", label: "Bible", icon: "scripture" },
-        { id: "media", label: "Media", icon: "media" },
-        { id: "settings", label: "Settings", icon: "settings" }
-    ]
+    // Category logic managed via hashtags now
 
     async function search(e: any) {
-        searchValue = e.target.value
+        let value = e.target.value
         const currentId = ++searchId
+        let category: SearchCategory = "all"
 
-        // Clear values immediately if search is empty
-        if (!searchValue) {
+        // Detect and strip hashtags
+        const hashtagMatch = value.match(/#(shows|bible|media|audio|overlays|settings|all)\b/i)
+        if (hashtagMatch) {
+            category = hashtagMatch[1].toLowerCase() as SearchCategory
+            value = value.replace(hashtagMatch[0], "").trim()
+        }
+
+        searchValue = e.target.value
+
+        // Clear values immediately if search is empty after stripping hashtag
+        if (!value && !searchValue) {
             values = []
             return
         }
 
-        const results = await quicksearch(formatSearch(searchValue), searchValue, activeCategory)
+        const results = await quicksearch(formatSearch(value), value, category)
 
         // Prevent race conditions
         if (currentId !== searchId) return
 
         values = results
         selectedIndex = 0
-    }
-
-    function selectCategory(id: SearchCategory) {
-        activeCategory = id
-        // Re-run search with new category
-        if (searchValue) {
-            search({ target: { value: searchValue } })
-        }
     }
 
     let selectedIndex = 0
@@ -99,25 +93,24 @@
     function highlightMatch(text: string, search: string): string {
         if (!search || !text) return text
 
-        // Try strict match first
+        // Strict phrase match first (highest priority highlight)
         const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
         const strictRegex = new RegExp(`(${escapedSearch})`, "gi")
         if (strictRegex.test(text)) {
             return text.replace(strictRegex, "<mark>$1</mark>")
         }
 
-        // Try tokenized match (words >= 3 chars)
-        const words = search.split(/\s+/).filter((w) => w.length >= 3)
-        if (!words.length) return text
+        // Token match: highlight individual words
+        const words = search.split(/\s+/).filter((w) => w.length >= 1)
+        if (words.length > 0) {
+            // Sort by length descending to match longer words first
+            words.sort((a, b) => b.length - a.length)
+            const pattern = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")
+            const regex = new RegExp(`(${pattern})`, "gi")
+            return text.replace(regex, "<mark>$1</mark>")
+        }
 
-        // Group words for a single regex to avoid overlapping <mark> tags
-        const pattern = words
-            .sort((a, b) => b.length - a.length) // Longest words first
-            .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-            .join("|")
-
-        const tokenRegex = new RegExp(`(${pattern})`, "gi")
-        return text.replace(tokenRegex, "<mark>$1</mark>")
+        return text
     }
 </script>
 
@@ -136,15 +129,7 @@
                 </div>
             {/if}
 
-            <!-- Category Filter Bar -->
-            <div class="category-bar" transition:fly={{ y: -10, duration: 150 }}>
-                {#each categories as cat}
-                    <button class="category-btn" class:active={activeCategory === cat.id} on:click={() => selectCategory(cat.id)}>
-                        <Icon id={cat.icon} size={0.9} />
-                        <span>{cat.label}</span>
-                    </button>
-                {/each}
-            </div>
+            <!-- Category Filter Bar Removed (Keywords supported via #hashtag) -->
 
             {#if searchValue}
                 {#if values.length}
@@ -264,36 +249,6 @@
         font-size: 0.85em;
         color: var(--text);
         opacity: 0.7;
-    }
-
-    /* Category Filter Bar */
-    .category-bar {
-        display: flex;
-        gap: 6px;
-        padding: 4px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .category-btn {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        padding: 6px 12px;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: var(--text);
-        opacity: 0.6;
-        cursor: pointer;
-        font-size: 0.85em;
-        transition: all 0.15s ease;
-    }
-    .category-btn:hover {
-        background: rgba(255, 255, 255, 0.08);
-        opacity: 0.9;
-    }
-    .category-btn.active {
-        background: rgba(255, 255, 255, 0.12);
-        opacity: 1;
     }
 
     .values {

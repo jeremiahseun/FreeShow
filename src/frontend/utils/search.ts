@@ -51,9 +51,12 @@ interface BibleVerseRef {
     text: string
 }
 
+const BIBLE_INDEX_VERSION = 2 // Increment this to force index rebuild
+
 interface BibleIndex {
     wordIndex: Map<string, BibleVerseRef[]>
     bibleId: string
+    version: number
 }
 
 let searchIndex: SearchIndex | null = null
@@ -102,30 +105,20 @@ export function buildSearchIndex(shows: ShowList[]) {
 /**
  * Fast Bible search using inverted index
  */
-export function fastBibleSearch(searchValue: string, MAX_RESULTS = 20): BibleVerseRef[] {
+export function fastBibleSearch(searchValue: string, MAX_RESULTS = 50): BibleVerseRef[] {
     if (!bibleIndex) return []
 
     const formattedQuery = formatSearch(searchValue)
-    const queryWords = tokenize(formattedQuery).filter((w) => w.length >= 3)
-
+    const queryWords = tokenize(formattedQuery)
     if (queryWords.length === 0) return []
 
     // Map: Verse Key (Book-Chapter-Verse) -> { ref, score }
     const resultsMap = new Map<string, { ref: BibleVerseRef; score: number }>()
 
+    // Use word index to find candidates
     for (const word of queryWords) {
-        // Try exact match
-        let matches = bibleIndex.wordIndex.get(word) || []
-
-        // Try prefix match for the last word if it's long enough
-        if (matches.length === 0 && word.length >= 4) {
-            for (const [indexedWord, indexedMatches] of bibleIndex.wordIndex) {
-                if (indexedWord.startsWith(word)) {
-                    matches = [...matches, ...indexedMatches]
-                }
-            }
-        }
-
+        if (word.length < 2) continue
+        const matches = bibleIndex.wordIndex.get(word) || []
         for (const ref of matches) {
             const key = `${ref.book}-${ref.chapter}-${ref.verse}`
             if (!resultsMap.has(key)) {
@@ -135,32 +128,40 @@ export function fastBibleSearch(searchValue: string, MAX_RESULTS = 20): BibleVer
         }
     }
 
-    // Sort by score (number of matched words) and limit
-    const sortedResults = Array.from(resultsMap.values())
-        .filter((r) => r.score > 0)
-        .sort((a, b) => {
-            // Priority 1: Match count
-            if (b.score !== a.score) return b.score - a.score
+    // Generate subphrases for better scoring
+    const searchTerms = generateSearchTerms(queryWords, 2)
 
-            // Priority 2: Sequential match (if original phrase appears literally)
-            const aIncludes = a.ref.text.toLowerCase().includes(formattedQuery)
-            const bIncludes = b.ref.text.toLowerCase().includes(formattedQuery)
-            if (aIncludes && !bIncludes) return -1
-            if (bIncludes && !aIncludes) return 1
+    // Re-score based on phrases and exact matches
+    const finalResults = Array.from(resultsMap.values())
+        .filter((r) => r.score >= Math.min(queryWords.length, 2)) // Require at least 2 word matches if possible
+        .map((r) => {
+            let extraScore = 0
+            const verseText = formatSearch(r.ref.text)
 
-            return 0
+            for (const { term, weight, isPhrase } of searchTerms) {
+                if (isPhrase && verseText.includes(term)) {
+                    // Match found for this subphrase or full phrase
+                    extraScore += weight * 20
+                }
+            }
+
+            // Word frequency bonus (if multiple query words appear multiple times)
+            // But score already counts matched unique query words.
+            // Let's add the extraScore to the original score (which is word match count)
+            return { ...r, finalScore: r.score + extraScore }
         })
+        .sort((a, b) => b.finalScore - a.finalScore)
         .slice(0, MAX_RESULTS)
         .map((r) => r.ref)
 
-    return sortedResults
+    return finalResults
 }
 
 /**
  * Build search index for a Bible
  */
 export async function buildBibleIndex(bibleId: string, bibleData: any) {
-    if (bibleIndex?.bibleId === bibleId) return bibleIndex
+    if (bibleIndex?.bibleId === bibleId && bibleIndex?.version === BIBLE_INDEX_VERSION) return bibleIndex
 
     const wordIndex = new Map<string, BibleVerseRef[]>()
 
@@ -193,7 +194,7 @@ export async function buildBibleIndex(bibleId: string, bibleData: any) {
                 // Index each unique word in the verse
                 const uniqueTokens = new Set(tokens)
                 for (const token of uniqueTokens) {
-                    if (token.length < 3) continue
+                    if (token.length < 2) continue
                     if (!wordIndex.has(token)) wordIndex.set(token, [])
                     wordIndex.get(token)!.push(ref)
                 }
@@ -203,7 +204,8 @@ export async function buildBibleIndex(bibleId: string, bibleData: any) {
 
     bibleIndex = {
         wordIndex,
-        bibleId
+        bibleId,
+        version: BIBLE_INDEX_VERSION
     }
 
     return bibleIndex
@@ -225,16 +227,17 @@ function indexWords(index: Map<string, IndexEntry[]>, showId: string, words: str
 }
 
 function indexPhrases(index: Map<string, Set<string>>, showId: string, words: string[]) {
-    // Create 2-grams and 3-grams for phrase matching
+    // Index n-grams (2 to 5 words) for phrase matching
     for (let i = 0; i < words.length - 1; i++) {
-        const bigram = words[i] + " " + words[i + 1]
-        if (!index.has(bigram)) index.set(bigram, new Set())
-        index.get(bigram)!.add(showId)
-
-        if (i < words.length - 2) {
-            const trigram = bigram + " " + words[i + 2]
-            if (!index.has(trigram)) index.set(trigram, new Set())
-            index.get(trigram)!.add(showId)
+        let phrase = words[i]
+        for (let size = 2; size <= 5; size++) {
+            if (i + size - 1 < words.length) {
+                phrase += " " + words[i + size - 1]
+                if (!index.has(phrase)) index.set(phrase, new Set())
+                index.get(phrase)!.add(showId)
+            } else {
+                break
+            }
         }
     }
 }
@@ -327,7 +330,7 @@ export function fastSearch(searchValue: string, shows: ShowList[]): ShowList[] {
  * - Subphrases: "valley of dry", "of dry bones", "valley of", "dry bones" (weight: 0.8)
  * - Individual words: "valley", "dry", "bones" (weight: 0.5), skip "of" (too short)
  */
-function generateSearchTerms(words: string[]): { term: string; weight: number; isPhrase: boolean }[] {
+function generateSearchTerms(words: string[], minWordLength = 3): { term: string; weight: number; isPhrase: boolean }[] {
     const terms: { term: string; weight: number; isPhrase: boolean }[] = []
     const n = words.length
 
@@ -339,7 +342,7 @@ function generateSearchTerms(words: string[]): { term: string; weight: number; i
     }
 
     // Contiguous subphrases (sliding window)
-    for (let windowSize = Math.min(n - 1, 3); windowSize >= 2; windowSize--) {
+    for (let windowSize = Math.min(n - 1, 5); windowSize >= 2; windowSize--) {
         for (let i = 0; i <= n - windowSize; i++) {
             const subphrase = words.slice(i, i + windowSize).join(" ")
             // Weight decreases as subphrase gets shorter
@@ -348,9 +351,9 @@ function generateSearchTerms(words: string[]): { term: string; weight: number; i
         }
     }
 
-    // Individual words (filter out very short ones like "of", "a", "the")
+    // Individual words (filter out very short ones)
     for (const word of words) {
-        if (word.length >= 3) {
+        if (word.length >= minWordLength) {
             terms.push({ term: word, weight: 0.5, isPhrase: false })
         }
     }

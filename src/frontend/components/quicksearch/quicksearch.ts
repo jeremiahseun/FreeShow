@@ -10,6 +10,8 @@ import {
     activeShow,
     activeStage,
     activeStyle,
+    audioPlaylists,
+    audioStreams,
     alertMessage,
     categories,
     companion,
@@ -71,10 +73,12 @@ interface QuickSearchValue {
 }
 
 const MAX_RESULTS_PER_CATEGORY = 5
-const MAX_BIBLE_RESULTS = 5
+const MAX_BIBLE_RESULTS = 15
 const MAX_MEDIA_RESULTS = 5
+const MAX_OVERLAY_RESULTS = 5
+const MAX_AUDIO_RESULTS = 5
 
-export type SearchCategory = "all" | "songs" | "bible" | "media" | "settings"
+export type SearchCategory = "all" | "shows" | "bible" | "media" | "audio" | "overlays" | "settings"
 
 export async function quicksearch(searchValue: string, rawSearchValue: string = "", categoryFilter: SearchCategory = "all") {
     const allResults: QuickSearchValue[] = []
@@ -98,14 +102,14 @@ export async function quicksearch(searchValue: string, rawSearchValue: string = 
 
     const shouldInclude = (cat: SearchCategory) => categoryFilter === "all" || categoryFilter === cat
 
-    // --- SONGS ---
-    if (shouldInclude("songs")) {
+    // --- SHOWS ---
+    if (shouldInclude("shows")) {
         if (get(activePage) === "show" && get(activeShow)?.type === "show") {
-            addValues(sort(getShowActions()).slice(0, 5), "custom_actions", "Songs")
+            addValues(sort(getShowActions()).slice(0, 5), "custom_actions", "Shows")
         }
 
         if (get(activePage) === "edit" && !get(activeEdit)?.id && get(activeShow)?.type === "show") {
-            addValues(sort(getEditActions()).slice(0, 5), "custom_actions", "Songs")
+            addValues(sort(getEditActions()).slice(0, 5), "custom_actions", "Shows")
         }
 
         // Shows with lyrics preview
@@ -129,13 +133,34 @@ export async function quicksearch(searchValue: string, rawSearchValue: string = 
             }
             return { ...show, description }
         })
-        addValues(showsWithPreview, "show", "Songs", "slide")
+        addValues(showsWithPreview, "show", "Shows", "slide")
     }
 
     // --- MEDIA ---
     if (shouldInclude("media")) {
         const mediaResults = getMediaResults(searchValue)
         addValues(mediaResults, "media", "Media")
+    }
+
+    // --- AUDIO ---
+    if (shouldInclude("audio")) {
+        // Playlists
+        const playlists = sort(keysToID(get(audioPlaylists))).slice(0, MAX_AUDIO_RESULTS)
+        addValues(playlists, "audio_playlist", "Audio", "album")
+
+        // Streams
+        const streams = sort(keysToID(get(audioStreams))).slice(0, MAX_AUDIO_RESULTS)
+        addValues(streams, "audio_stream", "Audio", "rss_feed")
+
+        // Audio files in media
+        const audioMedia = getMediaResults(searchValue, true).slice(0, MAX_AUDIO_RESULTS)
+        addValues(audioMedia, "media", "Audio", "music_note")
+    }
+
+    // --- OVERLAYS ---
+    if (shouldInclude("overlays")) {
+        const overlayResults = sort(keysToID(get(overlays))).slice(0, MAX_OVERLAY_RESULTS)
+        addValues(overlayResults, "overlay", "Overlays", "layers")
     }
 
     // --- BIBLE ---
@@ -158,7 +183,7 @@ export async function quicksearch(searchValue: string, rawSearchValue: string = 
         // stage layouts
         addValues(sort(keysToID(get(stageShows))).slice(0, 5), "stage_layout", "Settings", "stage")
 
-        // overlays
+        // overlays (redundant if overlays category exists, but good for settings search)
         addValues(sort(keysToID(get(overlays))).slice(0, 5), "overlay", "Settings", "overlays")
 
         // projects
@@ -315,7 +340,7 @@ async function getBibleResults(searchValue: string) {
     return results
 }
 
-function getMediaResults(searchValue: string) {
+function getMediaResults(searchValue: string, onlyAudio = false) {
     if (!searchValue || searchValue.length < 2) return []
 
     const mediaItems = get(media)
@@ -325,11 +350,16 @@ function getMediaResults(searchValue: string) {
     const lowerSearch = searchValue.toLowerCase()
 
     for (const [path, item] of Object.entries(mediaItems)) {
+        if (onlyAudio && !item.audio) continue
+
         if (item.name?.toLowerCase().includes(lowerSearch)) {
+            let icon = getMediaType(path) === "video" ? "movie" : "image"
+            if (item.audio) icon = "music_note"
+
             matches.push({
                 id: path,
                 name: item.name,
-                icon: getMediaType(path) === "video" ? "movie" : "image",
+                icon,
                 type: "media",
                 path: path
             })
@@ -556,12 +586,26 @@ const triggerActions = {
             })
         }
     },
+    audio_playlist: (id: string) => {
+        openDrawer("audio")
+        drawerTabsData.update((a) => {
+            if (a.audio) a.audio.activeSubTab = id
+            return a
+        })
+    },
+    audio_stream: (_id: string) => {
+        openDrawer("audio")
+        drawerTabsData.update((a) => {
+            if (a.audio) a.audio.activeSubTab = "audio_streams"
+            return a
+        })
+    },
     media: (id: string, _data: any, _control: boolean) => {
         const mediaItem = get(media)[id]
         if (!mediaItem) return
 
         // Logic from MediaCard.svelte click()
-        const _videoType = "foreground" // Default to foreground? Or background? Usually backgrounds are played on QuickSearch?
+
         // Let's assume background for media files unless specified.
         // Actually, in MediaCard.svelte it calculates type.
 
