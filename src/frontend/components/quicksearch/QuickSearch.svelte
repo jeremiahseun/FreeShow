@@ -256,6 +256,7 @@
         flex-direction: column;
         max-height: 55vh;
         overflow-y: auto;
+        overflow-x: hidden;
         padding-right: 5px;
     }
 
@@ -279,6 +280,7 @@
         align-items: flex-start;
         flex: 1;
         overflow: hidden;
+        min-width: 0;
     }
     .item-text p {
         width: 100%;
