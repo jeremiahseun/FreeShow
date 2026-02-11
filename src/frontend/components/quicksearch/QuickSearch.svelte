@@ -210,7 +210,7 @@
             0 0 0 1px rgba(255, 255, 255, 0.05) inset;
         border: 1px solid var(--primary-lighter);
 
-        --background: rgba(35, 35, 45, 0.95);
+        --background: rgba(35, 35, 45, 0.8);
         background-color: var(--background);
         backdrop-filter: blur(16px);
     }

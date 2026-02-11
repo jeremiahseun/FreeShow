@@ -29,7 +29,6 @@ export function isRefinement(newTokens: string[], oldTokens: string[]): boolean 
 export function showSearch(searchValue: string, shows: ShowList[]): ShowList[] {
     // WIP return fastSearch(searchValue, shows)
 
-    // Fallback to original for small lists
     let newShows: ShowList[] = []
 
     // fix invalid regular expression
