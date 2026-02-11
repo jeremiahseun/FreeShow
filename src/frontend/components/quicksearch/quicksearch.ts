@@ -10,9 +10,9 @@ import {
     activeShow,
     activeStage,
     activeStyle,
-    audioPlaylists,
-    audioStreams,
     alertMessage,
+    audioFolders,
+    audioPlaylists,
     categories,
     companion,
     currentOutputSettings,
@@ -21,7 +21,7 @@ import {
     focusMode,
     folders,
     groups,
-    media,
+    mediaFolders,
     openScripture,
     openToolsTab,
     outputs,
@@ -31,8 +31,6 @@ import {
     projectView,
     quickSearchActive,
     refreshEditSlide,
-    scriptures,
-    scripturesCache,
     selectedProfile,
     settingsTab,
     showRecentlyUsedProjects,
@@ -41,24 +39,22 @@ import {
     sortedShowsList,
     stageShows,
     styles,
-    textCache,
     textEditActive
 } from "../../stores"
 import { triggerFunction } from "../../utils/common"
 import { translateText } from "../../utils/language"
 import { getAccess } from "../../utils/profile"
-import { buildBibleIndex, fastBibleSearch, showSearch } from "../../utils/search"
+import { formatSearch } from "../../utils/search"
+import { fastSearch } from "../../utils/searchFast"
 import { runAction } from "../actions/actions"
 import { sortByClosestMatch } from "../actions/apiHelper"
 import { menuClick } from "../context/menuClick"
-import { loadJsonBible } from "../drawer/bible/scripture"
 import { openDrawer } from "../edit/scripts/edit"
 import { keysToID } from "../helpers/array"
 import { duplicate } from "../helpers/clipboard"
 import { history } from "../helpers/history"
-import { getMediaStyle, getMediaType } from "../helpers/media"
-import { getAllActiveOutputs, setOutput } from "../helpers/output"
 import { Main } from "./../../../types/IPC/Main"
+import { getBibleResults, getMediaResults, showResult } from "./quicksearchData"
 
 interface QuickSearchValue {
     type: keyof typeof triggerActions
@@ -72,20 +68,147 @@ interface QuickSearchValue {
     category: string
 }
 
-const MAX_RESULTS_PER_CATEGORY = 5
-const MAX_BIBLE_RESULTS = 15
-const MAX_MEDIA_RESULTS = 5
-const MAX_OVERLAY_RESULTS = 5
-const MAX_AUDIO_RESULTS = 5
+const MAX_RESULTS_NORMAL = 5
+const MAX_RESULTS_LARGE = 10
 
-export type SearchCategory = "all" | "shows" | "bible" | "media" | "audio" | "overlays" | "settings"
+export type SearchCategory = "show" | "settings" | "stage" | "overlays" | "projects" | "actions" | "navigation" | "faq" | "shows" | "media" | "audio" | "bible"
+const categoryNames: Record<SearchCategory, string> = {
+    show: "formats.show",
+    settings: "menu.settings",
+    stage: "menu.stage",
+    overlays: "tabs.overlays",
+    projects: "guide.projects",
+    actions: "tabs.actions",
+    navigation: "settings.general",
+    faq: "FAQ",
+    shows: "tabs.shows",
+    media: "tabs.media",
+    audio: "tabs.audio",
+    bible: "tabs.scripture"
+}
 
-export async function quicksearch(searchValue: string, rawSearchValue: string = "", categoryFilter: SearchCategory = "all") {
-    const allResults: QuickSearchValue[] = []
+export async function quicksearch(searchValue: string, categoryFilter: null | SearchCategory = null) {
+    const rawSearchValue = searchValue
+    searchValue = formatSearch(searchValue)
+    const values: QuickSearchValue[] = []
+    const trimValues = (array: any[], max: number = MAX_RESULTS_NORMAL) => array.slice(0, max)
     const sort = (array: any[]) => sortByClosestMatch(array, searchValue)
 
-    // Helper to add values with a specific category
-    function addValues(items: any[], type: keyof typeof triggerActions, category: string, icon = "") {
+    let currentCategory: SearchCategory = "show"
+    const isVisible = (cat: SearchCategory) => {
+        currentCategory = cat
+        return categoryFilter ? categoryFilter === cat : true
+    }
+
+    // --- ACTIVE SHOW ---
+    if (isVisible("show")) {
+        if (get(activePage) === "show" && get(activeShow)?.type === "show") {
+            addValues(trimValues(sort(getShowActions())), "custom_actions")
+        }
+
+        if (get(activePage) === "edit" && !get(activeEdit)?.id && get(activeShow)?.type === "show") {
+            addValues(trimValues(sort(getEditActions())), "custom_actions")
+        }
+    }
+
+    // --- SETTINGS ---
+    if (isVisible("settings")) {
+        // outputs
+        addValues(trimValues(sort(keysToID(get(outputs)))), "settings_output", "display_settings")
+
+        // styles
+        addValues(trimValues(sort(keysToID(get(styles)))), "settings_styles", "styles")
+
+        // profiles
+        addValues(trimValues(sort(keysToID(get(profiles)))), "settings_profiles", "profiles")
+    }
+
+    // --- STAGE LAYOUTS ---
+    if (isVisible("stage")) {
+        const stageLayouts = trimValues(sort(keysToID(get(stageShows))))
+        addValues(stageLayouts, "stage_layout", "stage")
+    }
+
+    // --- OVERLAYS ---
+    if (isVisible("overlays")) {
+        const overlaysList = trimValues(sort(keysToID(get(overlays))))
+        addValues(overlaysList, "overlay", "overlays")
+    }
+
+    // --- PROJECTS ---
+    if (isVisible("projects")) {
+        const projectsList = trimValues(sort(keysToID(get(projects))), MAX_RESULTS_LARGE)
+        addValues(projectsList, "project", "project")
+    }
+
+    // --- ACTIONS ---
+    if (isVisible("actions")) {
+        const actionsList = trimValues(sort(keysToID(get(actions))), 2)
+        addValues(actionsList, "action", "actions")
+    }
+
+    // --- NAVIGATION ---
+    if (isVisible("navigation")) {
+        // main pages
+        addValues(trimValues(sort(getMainPages()), 2), "main_page")
+
+        // drawer submenus
+        addValues(trimValues(sort(getDrawerSubmenus()), 3), "drawer_submenu")
+
+        // menu bar
+        addValues(trimValues(sort(getMenubarItems()), 3), "context_menu")
+
+        // popups
+        addValues(trimValues(sort(getPopups()), 3), "popups")
+
+        // settings
+        addValues(trimValues(sort(getSettings()), 3), "settings")
+
+        // connections
+        addValues(sort(connectionsList), "settings_connection", "connection")
+    }
+
+    // --- FAQ ---
+    if (isVisible("faq")) {
+        addValues(trimValues(sort(getFaq()), 3), "faq")
+    }
+
+    // --- SHOWS ---
+    if (isVisible("shows")) {
+        const allShows = get(sortedShowsList).filter((a) => !get(categories)[a.category || ""]?.isArchive)
+        const shows = fastSearch(searchValue, allShows)
+        const showsWithPreview = trimValues(shows, MAX_RESULTS_LARGE).map((show) => showResult(show, rawSearchValue))
+        addValues(showsWithPreview, "show", "slide")
+    }
+
+    // --- MEDIA ---
+    if (isVisible("media")) {
+        const folderPaths = Object.values(get(mediaFolders)).map((a) => a.path!)
+        const mediaResults = trimValues(await getMediaResults(searchValue, folderPaths), MAX_RESULTS_LARGE)
+        addValues(mediaResults, "media")
+    }
+
+    // --- AUDIO ---
+    if (isVisible("audio")) {
+        // playlists
+        const playlists = trimValues(sort(keysToID(get(audioPlaylists))))
+        addValues(playlists, "audio_playlist", "playlist")
+
+        // audio files
+        const folderPaths = Object.values(get(audioFolders)).map((a) => a.path!)
+        const audioMedia = trimValues(await getMediaResults(searchValue, folderPaths), MAX_RESULTS_LARGE)
+        addValues(audioMedia, "media")
+    }
+
+    // --- BIBLE ---
+    if (isVisible("bible")) {
+        const bibleResults = trimValues(await getBibleResults(searchValue), MAX_RESULTS_LARGE)
+        addValues(bibleResults, "bible", "bible")
+    }
+
+    return values
+
+    function addValues(items: any[], type: keyof typeof triggerActions, icon: string = "") {
         const newValues: QuickSearchValue[] = items.map((a) => ({
             type,
             icon: a.icon || icon,
@@ -95,279 +218,10 @@ export async function quicksearch(searchValue: string, rawSearchValue: string = 
             data: a.data || null,
             aliasMatch: a.aliasMatch || null,
             description: a.description || null,
-            category
+            category: translateText(categoryNames[currentCategory])
         }))
-        allResults.push(...newValues)
+        values.push(...newValues)
     }
-
-    const shouldInclude = (cat: SearchCategory) => categoryFilter === "all" || categoryFilter === cat
-
-    // --- SHOWS ---
-    if (shouldInclude("shows")) {
-        if (get(activePage) === "show" && get(activeShow)?.type === "show") {
-            addValues(sort(getShowActions()).slice(0, 5), "custom_actions", "Shows")
-        }
-
-        if (get(activePage) === "edit" && !get(activeEdit)?.id && get(activeShow)?.type === "show") {
-            addValues(sort(getEditActions()).slice(0, 5), "custom_actions", "Shows")
-        }
-
-        // Shows with lyrics preview
-        const shows = showSearch(
-            searchValue,
-            get(sortedShowsList).filter((a) => !get(categories)[a.category || ""]?.isArchive)
-        )
-        const showsWithPreview = shows.slice(0, MAX_RESULTS_PER_CATEGORY).map((show) => {
-            const cache = get(textCache)[show.id] || ""
-            let description = ""
-            if (cache && rawSearchValue.length > 2) {
-                // Find a snippet containing the search term
-                const lowerCache = cache.toLowerCase()
-                const lowerSearch = rawSearchValue.toLowerCase()
-                const idx = lowerCache.indexOf(lowerSearch)
-                if (idx !== -1) {
-                    const start = Math.max(0, idx - 30)
-                    const end = Math.min(cache.length, idx + rawSearchValue.length + 50)
-                    description = (start > 0 ? "..." : "") + cache.slice(start, end).trim() + (end < cache.length ? "..." : "")
-                }
-            }
-            return { ...show, description }
-        })
-        addValues(showsWithPreview, "show", "Shows", "slide")
-    }
-
-    // --- MEDIA ---
-    if (shouldInclude("media")) {
-        const mediaResults = getMediaResults(searchValue)
-        addValues(mediaResults, "media", "Media")
-    }
-
-    // --- AUDIO ---
-    if (shouldInclude("audio")) {
-        // Playlists
-        const playlists = sort(keysToID(get(audioPlaylists))).slice(0, MAX_AUDIO_RESULTS)
-        addValues(playlists, "audio_playlist", "Audio", "album")
-
-        // Streams
-        const streams = sort(keysToID(get(audioStreams))).slice(0, MAX_AUDIO_RESULTS)
-        addValues(streams, "audio_stream", "Audio", "rss_feed")
-
-        // Audio files in media
-        const audioMedia = getMediaResults(searchValue, true).slice(0, MAX_AUDIO_RESULTS)
-        addValues(audioMedia, "media", "Audio", "music_note")
-    }
-
-    // --- OVERLAYS ---
-    if (shouldInclude("overlays")) {
-        const overlayResults = sort(keysToID(get(overlays))).slice(0, MAX_OVERLAY_RESULTS)
-        addValues(overlayResults, "overlay", "Overlays", "layers")
-    }
-
-    // --- BIBLE ---
-    if (shouldInclude("bible")) {
-        const bibleResults = await getBibleResults(searchValue)
-        addValues(bibleResults, "bible", "Bible")
-    }
-
-    // --- SETTINGS/OTHERS ---
-    if (shouldInclude("settings")) {
-        // outputs
-        addValues(sort(keysToID(get(outputs))).slice(0, 5), "settings_output", "Settings", "display_settings")
-
-        // styles
-        addValues(sort(keysToID(get(styles))).slice(0, 5), "settings_styles", "Settings", "styles")
-
-        // profiles
-        addValues(sort(keysToID(get(profiles))).slice(0, 5), "settings_profiles", "Settings", "profiles")
-
-        // stage layouts
-        addValues(sort(keysToID(get(stageShows))).slice(0, 5), "stage_layout", "Settings", "stage")
-
-        // overlays (redundant if overlays category exists, but good for settings search)
-        addValues(sort(keysToID(get(overlays))).slice(0, 5), "overlay", "Settings", "overlays")
-
-        // projects
-        addValues(sort(keysToID(get(projects))).slice(0, 5), "project", "Settings", "project")
-
-        // actions
-        addValues(sort(keysToID(get(actions))).slice(0, 2), "action", "Settings", "actions")
-
-        // main pages
-        addValues(sort(getMainPages()).slice(0, 2), "main_page", "Settings")
-
-        // drawer submenus
-        addValues(sort(getDrawerSubmenus()).slice(0, 3), "drawer_submenu", "Settings")
-
-        // menu bar
-        addValues(sort(getMenubarItems()).slice(0, 3), "context_menu", "Settings")
-
-        // popups
-        addValues(sort(getPopups()).slice(0, 3), "popups", "Settings")
-
-        // settings
-        addValues(sort(getSettings()).slice(0, 3), "settings", "Settings")
-
-        // connections
-        addValues(sort(connectionsList), "settings_connection", "Settings", "connection")
-
-        // faq
-        addValues(sort(getFaq()).slice(0, 3), "faq", "Settings")
-    }
-
-    return allResults
-}
-
-async function getBibleResults(searchValue: string) {
-    const results: any[] = []
-    if (!searchValue || searchValue.length < 2) return results
-
-    const activeBibleId = get(drawerTabsData).scripture?.activeSubTab
-    if (!activeBibleId) return results
-
-    const bibleData = await loadJsonBible(activeBibleId)
-    if (!bibleData) return results
-
-    // Reference Search
-    const bookResult = bibleData.bookSearch(searchValue)
-    if (bookResult && bookResult.book) {
-        const Book = await bibleData.getBook(bookResult.book)
-        const bookName = Book.name
-        let name = bookName
-        let versePreview = ""
-
-        if (bookResult.chapter) {
-            name += " " + bookResult.chapter
-
-            // Try to get verse text preview
-            try {
-                const Chapter = await Book.getChapter(bookResult.chapter)
-                if (bookResult.verses?.length) {
-                    // Get first verse text for preview
-                    const firstVerse = Chapter.getVerse(bookResult.verses[0])
-                    versePreview =
-                        firstVerse
-                            ?.getHTML()
-                            ?.replace(/<[^>]*>/g, "")
-                            .slice(0, 100) || ""
-                    if (versePreview.length === 100) versePreview += "..."
-
-                    // Format verse range for display
-                    const verses = bookResult.verses
-                    if (verses.length > 1 && verses[verses.length - 1] === verses[0] + verses.length - 1) {
-                        name += ":" + verses[0] + "-" + verses[verses.length - 1]
-                    } else {
-                        name += ":" + verses.join(",")
-                    }
-                } else {
-                    // Default to first verse of chapter
-                    const firstVerse = Chapter.getVerse(1)
-                    versePreview =
-                        firstVerse
-                            ?.getHTML()
-                            ?.replace(/<[^>]*>/g, "")
-                            .slice(0, 100) || ""
-                    if (versePreview.length === 100) versePreview += "..."
-                }
-            } catch (e) {
-                // Ignore errors in preview fetching
-            }
-        }
-
-        results.push({
-            id: activeBibleId, // We use the bible ID, data will contain the reference
-            name: name,
-            icon: "scripture",
-            type: "bible",
-            description: versePreview,
-            data: {
-                reference: {
-                    book: bookResult.book,
-                    chapter: bookResult.chapter || 1, // Default to chapter 1 if only book is searched
-                    verses: bookResult.verses?.length ? [bookResult.verses] : [[1]]
-                },
-                play: !!bookResult.chapter // Auto-play if specific chapter/verse is found? Or maybe just open
-            }
-        })
-    }
-
-    // Text Search
-    // Only search if length > 2 to avoid too many results
-    if (searchValue.length > 2) {
-        let textResults: any[] = []
-
-        const scriptureData = get(scriptures)[activeBibleId]
-        if (!scriptureData?.api) {
-            // Local Bible: Use our fast inverted index search
-            const rawBible = get(scripturesCache)[activeBibleId]
-            if (rawBible) {
-                await buildBibleIndex(activeBibleId, rawBible)
-                const fastResults = fastBibleSearch(searchValue)
-                textResults = fastResults.map((r) => ({
-                    reference: r.reference,
-                    book: r.book,
-                    chapter: r.chapter,
-                    verse: { number: r.verse, text: r.text }
-                }))
-            }
-        }
-
-        // Fallback to library search if index search didn't yield results or for API bibles
-        if (textResults.length === 0) {
-            textResults = (await bibleData.textSearch(searchValue)) || []
-        }
-
-        if (textResults) {
-            textResults.slice(0, MAX_BIBLE_RESULTS).forEach((res) => {
-                results.push({
-                    id: activeBibleId,
-                    name: res.reference, // e.g. "John 3:16"
-                    icon: "scripture",
-                    type: "bible",
-                    description: res.verse.text, // Show verse text
-                    data: {
-                        reference: {
-                            book: res.book,
-                            chapter: res.chapter,
-                            verses: [[res.verse.number]]
-                        },
-                        play: true // Play when selecting specific verse match
-                    }
-                })
-            })
-        }
-    }
-
-    return results
-}
-
-function getMediaResults(searchValue: string, onlyAudio = false) {
-    if (!searchValue || searchValue.length < 2) return []
-
-    const mediaItems = get(media)
-    const matches: any[] = []
-
-    // Simple search implementation
-    const lowerSearch = searchValue.toLowerCase()
-
-    for (const [path, item] of Object.entries(mediaItems)) {
-        if (onlyAudio && !item.audio) continue
-
-        if (item.name?.toLowerCase().includes(lowerSearch)) {
-            let icon = getMediaType(path) === "video" ? "movie" : "image"
-            if (item.audio) icon = "music_note"
-
-            matches.push({
-                id: path,
-                name: item.name,
-                icon,
-                type: "media",
-                path: path
-            })
-        }
-    }
-
-    // Sort by closest match
-    return sortByClosestMatch(matches, searchValue).slice(0, MAX_MEDIA_RESULTS)
 }
 
 const triggerActions = {
@@ -574,68 +428,31 @@ const triggerActions = {
             }
         }
     },
-    bible: (_id: string, data: any, _control: boolean) => {
-        // Switch to Scripture tab
+    bible: (_id: string, data: any) => {
         openDrawer("scripture")
 
-        // Pass data to open scripture
-        if (data && data.reference) {
-            openScripture.set({
-                ...data.reference,
-                play: data.play // If we want to play immediately
-            })
-        }
+        if (data?.reference) openScripture.set({ ...data.reference, play: data.play })
     },
     audio_playlist: (id: string) => {
         openDrawer("audio")
+
         drawerTabsData.update((a) => {
             if (a.audio) a.audio.activeSubTab = id
             return a
         })
     },
-    audio_stream: (_id: string) => {
-        openDrawer("audio")
-        drawerTabsData.update((a) => {
-            if (a.audio) a.audio.activeSubTab = "audio_streams"
-            return a
-        })
-    },
-    media: (id: string, _data: any, _control: boolean) => {
-        const mediaItem = get(media)[id]
-        if (!mediaItem) return
+    media: (id: string, data: any) => {
+        const path = id
+        const type = data?.type
 
-        // Logic from MediaCard.svelte click()
+        if (type === "media" || type === "audio") activeEdit.set({ id: path, type: type === "audio" ? "audio" : "media", items: [] })
 
-        // Let's assume background for media files unless specified.
-        // Actually, in MediaCard.svelte it calculates type.
+        const showRef: any = { id: path, type }
+        showRef.name = data?.name || ""
+        activeShow.set(showRef)
 
-        // Since we don't have all context here easily, let's play as background for now, or foreground if we can detect.
-        // But getMediaStyle needs styles store.
-
-        const loop = true // Default loop
-        const muted = false
-
-        getAllActiveOutputs().forEach((output) => {
-            const currentOutputStyle = get(styles)[output.style || ""]
-            const currentMediaStyle = getMediaStyle(mediaItem, currentOutputStyle)
-
-            // We can determine videoType here if needed using getMediaLayerType but we need to import it or logic.
-            // For simplicity, let's just play it.
-
-            setOutput(
-                "background",
-                {
-                    path: id,
-                    type: getMediaType(id),
-                    loop,
-                    muted,
-                    startAt: 0,
-                    ...currentMediaStyle
-                },
-                false,
-                output.id
-            )
-        })
+        activePage.set("show")
+        if (get(focusMode)) focusMode.set(false)
     }
 }
 

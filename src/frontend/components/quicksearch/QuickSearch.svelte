@@ -4,43 +4,39 @@
     import { fade, fly } from "svelte/transition"
     import { quickSearchActive, special, theme, themes } from "../../stores"
     import { translateText } from "../../utils/language"
-    import { formatSearch } from "../../utils/search"
     import { hexToRgb } from "../helpers/color"
     import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
-    import Button from "../inputs/Button.svelte"
+    import MaterialButton from "../inputs/MaterialButton.svelte"
     import TextInput from "../inputs/TextInput.svelte"
     import Center from "../system/Center.svelte"
     import { quicksearch, selectQuicksearchValue, type SearchCategory } from "./quicksearch"
+    import { getNormalizedKey } from "../../utils/shortcuts"
 
     let values: any[] = []
     let searchValue = ""
+
     let searchId = 0
-    // Category logic managed via hashtags now
-
     async function search(e: any) {
-        let value = e.target.value
-        const currentId = ++searchId
-        let category: SearchCategory = "all"
+        searchValue = e.target.value
 
-        // Detect and strip hashtags
-        const hashtagMatch = value.match(/#(shows|bible|media|audio|overlays|settings|all)\b/i)
+        let value = searchValue
+        let category: null | SearchCategory = null
+
+        // choose specific categories with hashtags
+        const hashtagMatch = value.match(/#(show|settings|stage|overlays|projects|actions|navigation|faq|shows|media|audio|bible)\b/i)
         if (hashtagMatch) {
             category = hashtagMatch[1].toLowerCase() as SearchCategory
             value = value.replace(hashtagMatch[0], "").trim()
         }
 
-        searchValue = e.target.value
-
-        // Clear values immediately if search is empty after stripping hashtag
-        if (!value && !searchValue) {
+        if (!value) {
             values = []
             return
         }
 
-        const results = await quicksearch(formatSearch(value), value, category)
-
-        // Prevent race conditions
+        const currentId = ++searchId
+        const results = await quicksearch(value, category)
         if (currentId !== searchId) return
 
         values = results
@@ -51,7 +47,8 @@
 
     function keydown(e: KeyboardEvent) {
         // CTRL + G or F8
-        if (((e.ctrlKey || e.metaKey) && e.key === "g") || e.key === "F8") {
+        let key = getNormalizedKey(e)
+        if (((e.ctrlKey || e.metaKey) && key === "g") || e.key === "F8") {
             // toggle quick search
             quickSearchActive.set(!$quickSearchActive)
             return
@@ -62,14 +59,12 @@
         if (e.key === "Enter") {
             selectQuicksearchValue(values[selectedIndex], e.ctrlKey || e.metaKey)
             selectedIndex = 0
-        } else if (e.key === "ArrowDown") {
-            e.preventDefault()
-            selectedIndex = Math.min(values.length - 1, selectedIndex + 1)
-        } else if (e.key === "ArrowUp") {
-            e.preventDefault()
-            selectedIndex = Math.max(0, selectedIndex - 1)
-        }
+        } else if (e.key === "ArrowDown") selectedIndex = Math.min(values.length - 1, selectedIndex + 1)
+        else if (e.key === "ArrowUp") selectedIndex = Math.max(0, selectedIndex - 1)
     }
+
+    // let light = false
+    // $: if ($theme) light = !isDarkTheme()
 
     let rgb = { r: 35, g: 35, b: 45 }
     $: if ($theme) updateColor()
@@ -83,13 +78,13 @@
 
     $: isOptimized = $special.optimizedMode
 
-    // Auto-scroll to selected item
+    // auto-scroll to selected item
     $: if (values.length && selectedIndex >= 0) {
         const selectedEl = document.getElementById(`qs-item-${selectedIndex}`)
         if (selectedEl) selectedEl.scrollIntoView({ block: "nearest" })
     }
 
-    // Function to highlight matching text
+    // highlight matching text
     function highlightMatch(text: string, search: string): string {
         if (!search || !text) return text
 
@@ -112,39 +107,44 @@
 
         return text
     }
+
+    let centered = true
+    let showValues = false
+    $: if (values !== undefined) valuesChanged()
+    function valuesChanged() {
+        if (values.length || searchValue) {
+            centered = false
+            setTimeout(() => (showValues = true), 60)
+        } else {
+            showValues = false
+            setTimeout(() => (centered = true), 50)
+        }
+    }
 </script>
 
 <svelte:window on:keydown={keydown} />
 
 {#if $quickSearchActive}
-    <div class="quicksearch" transition:fade={{ duration: 50 }}>
-        <div class="box" style="--background: rgb({rgb.r} {rgb.g} {rgb.b} / 0.9);" class:isOptimized>
-            <TextInput value={searchValue} placeholder={translateText("main.quick_search...")} style="padding: 10px 15px;font-size: 1.4em;" autofocus autoselect on:input={search} />
-
-            <!-- Glowing Indicator -->
-            {#if !searchValue}
-                <div class="indicator" transition:fade={{ duration: 100 }}>
-                    <span class="glow-dot"></span>
-                    <span class="indicator-text">{translateText("main.search_anything")}</span>
+    <div class="quicksearch" class:centered transition:fade={{ duration: 50 }}>
+        <div class="box" style="--background: rgb({rgb.r} {rgb.g} {rgb.b} / 0.8);" class:isOptimized>
+            <div class="search" style="position: relative;">
+                <div class="icon">
+                    <Icon id="search" size={1.6} white />
                 </div>
-            {/if}
+                <TextInput value={searchValue} placeholder={translateText("main.quick_search...")} autofocus autoselect on:input={search} />
+            </div>
 
-            <!-- Category Filter Bar Removed (Keywords supported via #hashtag) -->
-
-            {#if searchValue}
+            {#if showValues && searchValue}
                 {#if values.length}
-                    <div class="values" transition:fly={{ y: 10, duration: 150 }}>
+                    <div class="values" in:fly={{ y: 10, duration: 150, delay: 50 }}>
                         {#each values as value, i}
                             {#if i === 0 || values[i - 1].category !== value.category}
-                                <div class="category-header">
-                                    {value.category}
-                                </div>
+                                <div class="category-header">{value.category}</div>
                             {/if}
 
                             <div id="qs-item-{i}">
-                                <Button style="gap: 10px;font-size: 1em;color: {value.color || 'unset'};" active={i === selectedIndex} on:click={(e) => selectQuicksearchValue(value, e.ctrlKey || e.metaKey)} bold={false}>
-                                    <Icon id={value.icon || value.type} />
-                                    <div class="item-text" data-title={value.name}>
+                                <MaterialButton style="color: {value.color || 'unset'};" icon={value.icon || value.type} title={value.name} isActive={i === selectedIndex} on:click={(e) => selectQuicksearchValue(value, e.detail.ctrl)} white>
+                                    <div class="item-text">
                                         <p>
                                             {value.name}
 
@@ -160,14 +160,16 @@
                                             <p class="description">{@html highlightMatch(value.description, searchValue)}</p>
                                         {/if}
                                     </div>
-                                </Button>
+                                </MaterialButton>
                             </div>
                         {/each}
                     </div>
                 {:else}
-                    <Center faded>
-                        <T id="empty.search" />
-                    </Center>
+                    <div class="values" in:fade>
+                        <Center faded>
+                            <T id="empty.search" />
+                        </Center>
+                    </div>
                 {/if}
             {/if}
         </div>
@@ -180,10 +182,18 @@
         left: 50%;
         top: 18%;
         transform: translate(-50%, 0);
-        width: 650px;
+        width: 600px;
         max-width: 90%;
 
         z-index: 5001;
+
+        transition:
+            top 0.2s ease,
+            transform 0.2s ease;
+    }
+    .quicksearch.centered {
+        top: 50%;
+        transform: translate(-50%, -50%);
     }
 
     .box {
@@ -192,8 +202,8 @@
         gap: 10px;
 
         background-color: var(--primary);
-        border-radius: 16px;
-        padding: 14px;
+        border-radius: 12px;
+        padding: 12px;
 
         box-shadow:
             0 12px 40px rgb(0 0 0 / 0.6),
@@ -205,50 +215,32 @@
         backdrop-filter: blur(16px);
     }
 
-    .box :global(input) {
-        border-radius: 8px;
-        border: none;
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--text);
-        transition: background 0.2s ease;
-    }
-    .box :global(input):focus {
-        outline: none;
-        background: rgba(255, 255, 255, 0.08);
-    }
+    .search .icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
 
-    /* Glowing Indicator */
-    .indicator {
+        pointer-events: none;
+        opacity: 0.5;
+
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
-        padding: 8px 0;
-        opacity: 0.6;
     }
-    .glow-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #4ade80, #22d3ee);
-        box-shadow: 0 0 8px 2px rgba(74, 222, 128, 0.5);
-        animation: pulse 2s ease-in-out infinite;
+
+    .search :global(input) {
+        padding: 10px 15px;
+        padding-left: 47px;
+        font-size: 1.4em;
+
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        transition: background 0.2s ease;
     }
-    @keyframes pulse {
-        0%,
-        100% {
-            opacity: 0.7;
-            transform: scale(1);
-        }
-        50% {
-            opacity: 1;
-            transform: scale(1.1);
-        }
-    }
-    .indicator-text {
-        font-size: 0.85em;
-        color: var(--text);
-        opacity: 0.7;
+    .search :global(input):focus {
+        outline: none;
+        background: rgba(255, 255, 255, 0.08);
     }
 
     .values {
@@ -260,12 +252,19 @@
         padding-right: 5px;
     }
 
+    .values :global(button) {
+        width: 100%;
+        font-weight: normal;
+        padding: 0.55rem 1.25rem;
+        border-bottom: 0 !important;
+    }
+
     .category-header {
         font-size: 0.75em;
         font-weight: bold;
         text-transform: uppercase;
         color: var(--text);
-        opacity: 0.5;
+        opacity: 0.4;
         padding: 10px 10px 5px 10px;
         margin-top: 5px;
         border-bottom: 1px solid var(--primary-lighter);
@@ -277,10 +276,9 @@
     .item-text {
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
         flex: 1;
         overflow: hidden;
-        min-width: 0;
+        padding-left: 10px;
     }
     .item-text p {
         width: 100%;
@@ -294,9 +292,9 @@
         opacity: 0.6;
     }
     .description :global(mark) {
-        background: rgba(250, 204, 21, 0.4);
+        background: var(--secondary-opacity);
         color: inherit;
         padding: 0 2px;
-        border-radius: 2px;
+        border-radius: 4px;
     }
 </style>
